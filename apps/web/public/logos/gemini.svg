@@ -1,0 +1,42 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="gemini-star-mask">
+      <path d="M50 2 C50 26.5 73.5 50 98 50 C73.5 50 50 73.5 50 98 C50 73.5 26.5 50 2 50 C26.5 50 50 26.5 50 2 Z" />
+    </clipPath>
+    <!-- Top-left to bottom-right diagonal: Red/Orange to Teal/Green -->
+    <linearGradient id="gemini-diag-1" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#EA4335" />
+      <stop offset="45%" stop-color="#FBBC04" />
+      <stop offset="75%" stop-color="#34A853" />
+      <stop offset="100%" stop-color="#0F9D58" />
+    </linearGradient>
+    <!-- Right glow: Blue -->
+    <radialGradient id="gemini-blue-glow" cx="100%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#4285F4" stop-opacity="1" />
+      <stop offset="60%" stop-color="#1A73E8" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#1A73E8" stop-opacity="0" />
+    </radialGradient>
+    <!-- Top glow: Red -->
+    <radialGradient id="gemini-red-glow" cx="50%" cy="0%" r="55%">
+      <stop offset="0%" stop-color="#EA4335" stop-opacity="1" />
+      <stop offset="70%" stop-color="#EA4335" stop-opacity="0" />
+    </radialGradient>
+    <!-- Left glow: Yellow -->
+    <radialGradient id="gemini-yellow-glow" cx="0%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#FBBC04" stop-opacity="1" />
+      <stop offset="70%" stop-color="#FBBC04" stop-opacity="0" />
+    </radialGradient>
+    <!-- Bottom glow: Green -->
+    <radialGradient id="gemini-green-glow" cx="50%" cy="100%" r="55%">
+      <stop offset="0%" stop-color="#34A853" stop-opacity="1" />
+      <stop offset="70%" stop-color="#34A853" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <g clip-path="url(#gemini-star-mask)">
+    <rect width="100" height="100" fill="url(#gemini-diag-1)" />
+    <rect width="100" height="100" fill="url(#gemini-blue-glow)" />
+    <rect width="100" height="100" fill="url(#gemini-red-glow)" />
+    <rect width="100" height="100" fill="url(#gemini-yellow-glow)" />
+    <rect width="100" height="100" fill="url(#gemini-green-glow)" />
+  </g>
+</svg>

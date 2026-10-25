@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #18191c;
+    width: 512px;
+    height: 512px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  canvas {
+    width: 512px;
+    height: 512px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="512" height="512"></canvas>
+<script>
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#18191c';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Gemini 4-pointed curved star path with slight tip rounding
+  // Center is (256, 256), half-span is 190 px
+  const cx = 256, cy = 256, r = 190;
+  
+  ctx.save();
+  ctx.beginPath();
+  
+  // Custom path using smooth bezier curves with rounded tips
+  // Top tip: (256, 66)
+  // Right tip: (446, 256)
+  // Bottom tip: (256, 446)
+  // Left tip: (66, 256)
+  
+  // We can use SVG path for Google Gemini:
+  // "M 256, 66 C 256, 171 341, 256 446, 256 C 341, 256 256, 341 256, 446 C 256, 341 171, 256 66, 256 C 171, 256 256, 171 256, 66 Z"
+  const starPath = new Path2D("M 256 66 C 256 170.9 341.1 256 446 256 C 341.1 256 256 341.1 256 446 C 256 341.1 170.9 256 66 256 C 170.9 256 256 170.9 256 66 Z");
+  
+  ctx.clip(starPath);
+  
+  // Base fill: smooth conical or combined radial gradients
+  // 1. Red from top
+  const gTop = ctx.createRadialGradient(256, 66, 0, 256, 256, 280);
+  gTop.addColorStop(0, '#EA4335');
+  gTop.addColorStop(0.55, 'rgba(234, 67, 53, 0.4)');
+  gTop.addColorStop(1, 'rgba(234, 67, 53, 0)');
+  ctx.fillStyle = gTop;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // 2. Yellow from left
+  const gLeft = ctx.createRadialGradient(66, 256, 0, 256, 256, 280);
+  gLeft.addColorStop(0, '#FBBC05');
+  gLeft.addColorStop(0.55, 'rgba(251, 188, 5, 0.5)');
+  gLeft.addColorStop(1, 'rgba(251, 188, 5, 0)');
+  ctx.fillStyle = gLeft;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // 3. Green from bottom
+  const gBottom = ctx.createRadialGradient(256, 446, 0, 256, 256, 280);
+  gBottom.addColorStop(0, '#34A853');
+  gBottom.addColorStop(0.55, 'rgba(52, 168, 83, 0.5)');
+  gBottom.addColorStop(1, 'rgba(52, 168, 83, 0)');
+  ctx.fillStyle = gBottom;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // 4. Blue from right
+  const gRight = ctx.createRadialGradient(446, 256, 0, 256, 256, 280);
+  gRight.addColorStop(0, '#4285F4');
+  gRight.addColorStop(0.55, 'rgba(66, 133, 244, 0.6)');
+  gRight.addColorStop(1, 'rgba(66, 133, 244, 0)');
+  ctx.fillStyle = gRight;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Center blend glow
+  const gCenter = ctx.createRadialGradient(256, 240, 0, 256, 256, 180);
+  gCenter.addColorStop(0, 'rgba(90, 140, 250, 0.5)');
+  gCenter.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gCenter;
+  ctx.fillRect(0, 0, 512, 512);
+
+  ctx.restore();
+</script>
+</body>
+</html>

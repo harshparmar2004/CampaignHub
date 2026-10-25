@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Production & Build outputs
+.next/
+out/
+build/
+dist/
+apps/worker/dist/
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment variables & Local databases
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.local-db.json
+.local-db.json
+
+# Logs & Runtime
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Scratch generator scripts
+create_gemini_logo.py
+create_gemini_logo_perfect.py
+create_ollama_logo.py
+inspect_gemini_ref.py
+render_gemini.py
+render_homarr.py
+render_official_black.py
+render_ollama.py
