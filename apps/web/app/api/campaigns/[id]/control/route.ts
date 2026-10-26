@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { executeCampaignPipeline } from '@/lib/pipeline/dispatchEngine';
 
 export async function POST(
   request: Request,
@@ -33,9 +34,16 @@ export async function POST(
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
 
+    // If resuming, trigger real-time pipeline execution
+    if (action === 'resume') {
+      executeCampaignPipeline(id).catch((err) => {
+        console.error(`[ControlAPI] Pipeline execution error on resume for ${id}:`, err);
+      });
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Campaign status updated to "${targetStatus}". Takes effect within seconds.`,
+      message: `Campaign status updated to "${targetStatus}". Real-time pipeline active.`,
       data,
     });
   } catch (err: any) {

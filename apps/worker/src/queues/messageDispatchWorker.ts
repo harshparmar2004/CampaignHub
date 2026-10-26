@@ -4,6 +4,7 @@ import { db } from '../lib/db.js';
 import { sendWhatsAppMessage } from '../senders/whatsapp.js';
 import { sendCampaignEmail } from '../senders/email.js';
 import { sendTelegramDirectMessage } from '../senders/telegram.js';
+import { sendInstagramMessage } from '../senders/instagram.js';
 
 export const DISPATCH_QUEUE_NAME = 'message-dispatch-queue';
 export const messageDispatchQueue = new Queue(DISPATCH_QUEUE_NAME, {
@@ -84,6 +85,8 @@ export function startMessageDispatchWorker() {
         sendResult = await sendCampaignEmail(contact, campaign);
       } else if (channel === 'telegram') {
         sendResult = await sendTelegramDirectMessage(contact, campaign);
+      } else if (channel === 'instagram') {
+        sendResult = await sendInstagramMessage(contact, campaign);
       }
 
       const now = new Date().toISOString();

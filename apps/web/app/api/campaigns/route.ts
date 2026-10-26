@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { CreateCampaignSchema } from '@campaignhub/shared';
+import { executeCampaignPipeline } from '@/lib/pipeline/dispatchEngine';
 
 export async function GET(request: Request) {
   try {
@@ -121,11 +122,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // If running, we can trigger background expansion immediately
-    // If Redis is reachable, queue job; otherwise scheduler or worker picks it up
+    // If status is running, trigger real-time multi-channel dispatch pipeline immediately
+    if (initialStatus === 'running') {
+      console.log(`[CampaignsAPI] Launching real-time execution for campaign ${campaign.id}...`);
+      executeCampaignPipeline(campaign.id).catch((err) => {
+        console.error(`[CampaignsAPI] Pipeline execution error for ${campaign.id}:`, err);
+      });
+    }
+
     return NextResponse.json({
       success: true,
-      message: `Campaign created successfully with status "${initialStatus}".`,
+      message: `Campaign created successfully with status "${initialStatus}". Dispatched in real-time.`,
       data: campaign,
     }, { status: 201 });
   } catch (err: any) {

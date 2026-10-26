@@ -38,45 +38,82 @@ export async function sendWhatsAppMessage(
     };
   }
 
-  // Meta expects 'to' phone digits without the leading '+'
-  const recipientPhone = contact.phone.replace(/^\+/, '');
+  const recipientPhone = contact.phone.replace(/\D/g, '');
 
-  // Build template parameters from variable map
-  const variableMap = campaign.whatsapp_variable_map || {};
-  const parameters: { type: 'text'; text: string }[] = [];
+  let payload: any;
+  const isTemplateMode =
+    campaign.whatsapp_template_id &&
+    campaign.whatsapp_template_id !== 'custom_message' &&
+    campaign.whatsapp_template_id !== 'custom';
 
-  const sortedKeys = Object.keys(variableMap).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-  for (const key of sortedKeys) {
-    const mappedField = variableMap[key];
-    let val = '';
-    if (mappedField.startsWith('fixed:')) {
-      val = mappedField.substring(6);
-    } else {
-      val = String((contact as any)[mappedField] || '');
+  if (isTemplateMode) {
+    // Build template parameters from variable map
+    const variableMap = campaign.whatsapp_variable_map || {};
+    const parameters: { type: 'text'; text: string }[] = [];
+
+    const sortedKeys = Object.keys(variableMap).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+    for (const key of sortedKeys) {
+      const mappedField = variableMap[key];
+      let val = '';
+      if (mappedField.startsWith('fixed:')) {
+        val = mappedField.substring(6);
+      } else {
+        val = String((contact as any)[mappedField] || '');
+      }
+      parameters.push({ type: 'text', text: val || ' ' });
     }
-    parameters.push({ type: 'text', text: val || ' ' });
-  }
 
-  const payload: any = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: recipientPhone,
-    type: 'template',
-    template: {
-      name: campaign.whatsapp_template_id,
-      language: {
-        code: 'en_US', // default language
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: recipientPhone,
+      type: 'template',
+      template: {
+        name: campaign.whatsapp_template_id,
+        language: { code: 'en_US' },
       },
-    },
-  };
+    };
 
-  if (parameters.length > 0) {
-    payload.template.components = [
-      {
-        type: 'body',
-        parameters,
+    if (parameters.length > 0) {
+      payload.template.components = [
+        {
+          type: 'body',
+          parameters,
+        },
+      ];
+    }
+  } else if ((campaign as any).whatsapp_image_url && (campaign as any).whatsapp_image_url.trim()) {
+    const rawText = (campaign as any).whatsapp_message_text || '';
+    const text = rawText
+      .replace(/\{\{name\}\}/gi, contact.name || 'Valued Guest')
+      .replace(/\{\{first_name\}\}/gi, (contact.name || 'Valued Guest').split(' ')[0]);
+
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: recipientPhone,
+      type: 'image',
+      image: {
+        link: (campaign as any).whatsapp_image_url.trim(),
+        caption: text,
       },
-    ];
+    };
+  } else {
+    const rawText = (campaign as any).whatsapp_message_text || 'Announcement from CampaignHub';
+    const text = rawText
+      .replace(/\{\{name\}\}/gi, contact.name || 'Valued Guest')
+      .replace(/\{\{first_name\}\}/gi, (contact.name || 'Valued Guest').split(' ')[0]);
+
+    payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: recipientPhone,
+      type: 'text',
+      text: {
+        preview_url: Boolean((campaign as any).whatsapp_link_url),
+        body: text,
+      },
+    };
   }
 
   try {

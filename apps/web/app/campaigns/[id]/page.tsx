@@ -29,6 +29,7 @@ import {
   Eye,
   CheckCheck,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { WhatsAppLogo, GmailLogo, TelegramLogo, InstagramLogo } from '@/components/ui/BrandIcons';
 import { Button } from '@/components/ui/Button';
@@ -107,6 +108,23 @@ export default function CampaignDetailPage() {
       }
     } catch (err: any) {
       alert(err.message || 'Retry error');
+    } finally {
+      setControlLoading(false);
+    }
+  }
+
+  async function handleRunPipelineNow() {
+    setControlLoading(true);
+    try {
+      const res = await fetch(`/api/campaigns/${id}/run`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        fetchCampaign(false);
+      } else {
+        alert(data.error || 'Execution failed');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Run pipeline error');
     } finally {
       setControlLoading(false);
     }
@@ -340,6 +358,16 @@ export default function CampaignDetailPage() {
               Retry Failed ({overallStats.failed})
             </Button>
           )}
+
+          <Button
+            variant="primary"
+            isLoading={controlLoading}
+            onClick={handleRunPipelineNow}
+            className="text-xs h-8 px-3.5 bg-brand hover:bg-brand-hover text-white font-bold shadow-xs cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5 mr-1" />
+            <span>Run Pipeline Now</span>
+          </Button>
         </div>
       </div>
 
