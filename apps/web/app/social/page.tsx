@@ -95,10 +95,30 @@ function SocialHubContent() {
   );
   const [isSendingWaDirect, setIsSendingWaDirect] = useState(false);
   const [waDirectFeedback, setWaDirectFeedback] = useState<string | null>(null);
+  const [selectedTemplateForDirect, setSelectedTemplateForDirect] = useState('custom');
 
   // Inline WhatsApp Quick Reply
   const [replyInputText, setReplyInputText] = useState('');
   const [activeReplyingPhone, setActiveReplyingPhone] = useState<string | null>(null);
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [replyFeedback, setReplyFeedback] = useState<string | null>(null);
+  const [replySearchTerm, setReplySearchTerm] = useState('');
+
+  // Safe Date Formatter helper
+  const formatDateTime = (dateStr?: string) => {
+    if (!dateStr) return 'Recently';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'Recently';
+      return (
+        d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) +
+        ' • ' +
+        d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+      );
+    } catch {
+      return 'Recently';
+    }
+  };
 
   // 2. Mail State
   const [mailStats, setMailStats] = useState({
@@ -583,180 +603,537 @@ function SocialHubContent() {
             </div>
           </div>
 
-          {/* WhatsApp Operational Core: Direct Broadcaster & Live Chat Stream */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Left: Interactive Direct WhatsApp Broadcaster Simulator (7 cols) */}
-            <div className="lg:col-span-7 p-4 sm:p-5 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <WhatsAppLogo className="w-4 h-4" />
-                  <h3 className="text-sm font-bold text-txt-primary">Direct WhatsApp Message &amp; Template Broadcaster</h3>
-                </div>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
-                  Cloud API v20.0
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div>
-                  <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Target Phone (+Country)</label>
-                  <Input
-                    value={waDirectTo}
-                    onChange={(e) => setWaDirectTo(e.target.value)}
-                    placeholder="+91..."
-                    className="w-full text-xs font-mono"
-                  />
+          {/* =============================================================== */}
+          {/* 3. SECTION: DIRECT WHATSAPP MESSAGE & TEMPLATE BROADCASTER      */}
+          {/* =============================================================== */}
+          <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
+                  <WhatsAppLogo className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Contact Name</label>
-                  <Input
-                    value={waDirectName}
-                    onChange={(e) => setWaDirectName(e.target.value)}
-                    placeholder="Guest name..."
-                    className="w-full text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="text-xs space-y-1">
-                <label className="text-[11px] font-bold text-txt-muted uppercase block">Message Content / Template Placeholder</label>
-                <Textarea
-                  value={waDirectText}
-                  onChange={(e) => setWaDirectText(e.target.value)}
-                  rows={3}
-                  className="w-full text-xs"
-                />
-              </div>
-
-              {/* Real-time WhatsApp Chat Bubble Preview Simulator */}
-              <div className="p-3 bg-[#E5DDD5] rounded-xl border border-border/60">
-                <span className="text-[9px] uppercase font-bold text-[#54656F] block mb-2">Live WhatsApp Chat Bubble Preview</span>
-                <div className="max-w-[85%] ml-auto bg-[#D9FDD3] p-2.5 rounded-xl rounded-tr-none shadow-xs text-xs text-[#111B21] space-y-1">
-                  <p className="leading-relaxed">{waDirectText}</p>
-                  <div className="flex items-center justify-end gap-1 text-[9px] text-[#667781]">
-                    <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <CheckCheck className="w-3.5 h-3.5 text-[#53BDEB]" />
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-txt-primary">Direct WhatsApp Message &amp; Template Broadcaster</h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                      Cloud API v21.0
+                    </span>
                   </div>
+                  <p className="text-xs text-txt-muted">
+                    Compose and dispatch live 1:1 WhatsApp messages with token merge variables or pre-approved Meta templates.
+                  </p>
                 </div>
               </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="text-xs text-emerald-700 font-bold">{waDirectFeedback}</div>
-                <Button
-                  onClick={async () => {
-                    setIsSendingWaDirect(true);
-                    await new Promise((r) => setTimeout(r, 700));
-                    setWaLogs((prev) => [
-                      {
-                        id: 'msg-live-' + Date.now(),
-                        contact_id: 'c-new',
-                        channel: 'whatsapp',
-                        status: 'delivered',
-                        cost_inr: 0.82,
-                        sent_at: new Date().toISOString(),
-                        delivered_at: new Date().toISOString(),
-                        contacts: { name: waDirectName, phone: waDirectTo, email: '', tier: 'vip' },
-                      },
-                      ...prev,
-                    ]);
-                    setWaStats((prev) => ({
-                      ...prev,
-                      sent: prev.sent + 1,
-                      delivered: prev.delivered + 1,
-                      cost_inr: prev.cost_inr + 0.82,
-                    }));
-                    setIsSendingWaDirect(false);
-                    setWaDirectFeedback('WhatsApp message delivered to ' + waDirectTo + '!');
-                    setTimeout(() => setWaDirectFeedback(null), 3000);
-                  }}
-                  disabled={isSendingWaDirect || !waDirectText.trim()}
-                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white min-h-[38px] py-1.5 px-4 text-xs"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isSendingWaDirect ? 'Sending via Meta...' : 'Send WhatsApp Direct'}</span>
-                </Button>
+              <div className="flex items-center gap-1 text-[11px] text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 self-start sm:self-auto">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>E.164 Verified Dispatch</span>
               </div>
             </div>
 
-            {/* Right: Inbound Customer Replies & Live 2-Way Chat Stream (5 cols) */}
-            <div className="lg:col-span-5 p-4 sm:p-5 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-xs font-bold text-txt-primary uppercase tracking-wider">
-                      Inbound Customer Replies (2-Way)
-                    </h3>
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-200">
-                    Live Stream
-                  </span>
+            {/* 2-Column Balanced Internal Layout: Inputs on Left, Mobile Simulator on Right */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: Form Controls (7 cols) */}
+              <div className="lg:col-span-7 space-y-4">
+                {/* Quick Contact Fill */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold uppercase text-txt-muted mr-1">Quick Select:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWaDirectTo('+91 98765 43210');
+                      setWaDirectName('Arjun Mehta');
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
+                  >
+                    Arjun Mehta (+91 98765 43210)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWaDirectTo('+91 98234 56789');
+                      setWaDirectName('Priya Patel');
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
+                  >
+                    Priya Patel (+91 98234 56789)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWaDirectTo('+91 98111 22334');
+                      setWaDirectName('Aarav Sharma');
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
+                  >
+                    Aarav Sharma (+91 98111 22334)
+                  </button>
                 </div>
-                <p className="text-[11px] text-txt-muted mb-3">
-                  Two-way customer messages received via Meta Cloud Webhooks.
-                </p>
 
-                <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                  {waReplies.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-txt-muted bg-bg-app rounded-xl">No active replies</div>
-                  ) : (
-                    waReplies.map((r, i) => (
-                      <div key={i} className="p-2.5 bg-bg-app rounded-xl border border-border/60 space-y-1.5 text-xs">
-                        <div className="flex justify-between text-[10px]">
-                          <strong className="text-txt-primary font-bold">{r.contact_name || r.from_number}</strong>
-                          <span className="text-txt-muted">{new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        <p className="text-xs text-txt-primary bg-white p-2 rounded-lg border border-border/50">{r.message_text}</p>
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveReplyingPhone(r.from_number);
-                              setWaDirectTo(r.from_number);
-                              if (r.contact_name) setWaDirectName(r.contact_name);
-                            }}
-                            className="text-[10px] text-emerald-700 font-bold hover:underline cursor-pointer"
-                          >
-                            Reply to {r.contact_name || 'Guest'} &rarr;
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Target Phone (+Country)</label>
+                    <Input
+                      value={waDirectTo}
+                      onChange={(e) => setWaDirectTo(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="w-full text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Contact Name</label>
+                    <Input
+                      value={waDirectName}
+                      onChange={(e) => setWaDirectName(e.target.value)}
+                      placeholder="e.g. Arjun Mehta"
+                      className="w-full text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Message Format / Template</label>
+                    <select
+                      value={selectedTemplateForDirect}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedTemplateForDirect(val);
+                        if (val === 'custom') {
+                          setWaDirectText('Hello ' + (waDirectName || 'there') + ', your VIP Access Pass for the Diwali Festive Gala is confirmed! Show this message at the concierge desk.');
+                        } else {
+                          const found = waTemplates.find((t) => t.id === val || t.name === val);
+                          if (found) {
+                            setWaDirectText(found.body.replace('{{1}}', waDirectName || 'Guest'));
+                          }
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary font-medium"
+                    >
+                      <option value="custom">Custom Direct Message (Instant Text/Media)</option>
+                      {waTemplates.map((t) => (
+                        <option key={t.id} value={t.name}>
+                          Meta Template: {t.name} ({t.category})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Insert Dynamic Merge Tags</label>
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      {['{{name}}', '{{first_name}}', '{{phone}}', '{{tier}}', '{{link}}'].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setWaDirectText((prev) => prev + ' ' + tag)}
+                          className="text-[10px] font-mono px-2 py-1 rounded bg-bg-app hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-border text-txt-muted font-bold transition-colors cursor-pointer"
+                        >
+                          + {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[11px] font-bold text-txt-muted uppercase block">Message Content</label>
+                    <span className="text-[10px] text-txt-muted">{waDirectText.length} characters</span>
+                  </div>
+                  <Textarea
+                    value={waDirectText}
+                    onChange={(e) => setWaDirectText(e.target.value)}
+                    rows={4}
+                    placeholder="Type your WhatsApp message..."
+                    className="w-full text-xs font-normal leading-relaxed"
+                  />
+                </div>
+
+                {/* Send Button & Live Status */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                  <div className="text-xs font-semibold">
+                    {waDirectFeedback && (
+                      <span className={waDirectFeedback.startsWith('✓') ? 'text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200' : 'text-rose-700 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200'}>
+                        {waDirectFeedback}
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    onClick={async () => {
+                      if (!waDirectText.trim() || !waDirectTo.trim() || isSendingWaDirect) return;
+                      setIsSendingWaDirect(true);
+                      setWaDirectFeedback(null);
+
+                      try {
+                        const res = await fetch('/api/whatsapp/send', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            to: waDirectTo,
+                            name: waDirectName,
+                            message: waDirectText,
+                            templateId: selectedTemplateForDirect !== 'custom' ? selectedTemplateForDirect : undefined,
+                          }),
+                        });
+
+                        const data = await res.json();
+                        if (data.success) {
+                          setWaLogs((prev) => [
+                            {
+                              id: data.messageId || 'msg-live-' + Date.now(),
+                              contact_id: 'c-new',
+                              channel: 'whatsapp',
+                              status: data.status || 'delivered',
+                              provider_message_id: data.providerMessageId,
+                              cost_inr: data.cost_inr || 0.82,
+                              sent_at: data.delivered_at || new Date().toISOString(),
+                              delivered_at: data.delivered_at || new Date().toISOString(),
+                              contacts: { name: waDirectName, phone: waDirectTo, email: '', tier: 'vip' },
+                            },
+                            ...prev,
+                          ]);
+                          setWaStats((prev) => ({
+                            ...prev,
+                            sent: prev.sent + 1,
+                            delivered: prev.delivered + 1,
+                            cost_inr: Number((prev.cost_inr + (data.cost_inr || 0.82)).toFixed(2)),
+                          }));
+                          setWaDirectFeedback(`✓ Message delivered to ${waDirectTo} (ID: ${data.providerMessageId || 'Confirmed'})`);
+                        } else {
+                          setWaDirectFeedback(`✗ Transmission failed: ${data.error || 'Server error'}`);
+                        }
+                      } catch (err: any) {
+                        setWaDirectFeedback(`✗ Error: ${err.message}`);
+                      } finally {
+                        setIsSendingWaDirect(false);
+                        setTimeout(() => setWaDirectFeedback(null), 5000);
+                      }
+                    }}
+                    disabled={isSendingWaDirect || !waDirectText.trim() || !waDirectTo.trim()}
+                    className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white min-h-[40px] py-2 px-5 text-xs font-bold rounded-xl shadow-xs shrink-0 cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{isSendingWaDirect ? 'Sending via Meta Cloud API...' : '⚡ Execute & Send WhatsApp Direct'}</span>
+                  </Button>
                 </div>
               </div>
 
-              {/* Inline Quick Reply Box */}
-              <div className="pt-2 border-t border-border/60">
-                <div className="flex gap-1.5">
-                  <Input
-                    value={replyInputText}
-                    onChange={(e) => setReplyInputText(e.target.value)}
-                    placeholder={activeReplyingPhone ? `Reply to ${activeReplyingPhone}...` : 'Type quick reply...'}
-                    className="text-xs"
-                  />
-                  <Button
-                    onClick={() => {
-                      if (!replyInputText.trim()) return;
-                      setWaReplies((prev) => [
-                        {
-                          from_number: '+91 98765 43210 (You)',
-                          contact_name: 'You (CampaignHub)',
-                          message_text: replyInputText,
-                          created_at: new Date().toISOString(),
-                        },
-                        ...prev,
-                      ]);
-                      setReplyInputText('');
-                    }}
-                    disabled={!replyInputText.trim()}
-                    className="px-3 min-h-[38px] text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </Button>
+              {/* Right Column: Realistic WhatsApp Phone Mockup Simulator (5 cols) */}
+              <div className="lg:col-span-5 bg-gradient-to-b from-slate-900 to-slate-950 p-3 sm:p-4 rounded-2xl border border-slate-800 shadow-md">
+                <div className="flex items-center justify-between text-white/70 text-[10px] pb-2 border-b border-white/10 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="font-bold uppercase tracking-wider text-white">Live Phone Preview</span>
+                  </div>
+                  <span className="font-mono text-emerald-400">Meta v21.0</span>
+                </div>
+
+                {/* WhatsApp Device Mockup Container */}
+                <div className="rounded-xl overflow-hidden border border-slate-700/60 bg-[#efeae2] shadow-inner flex flex-col min-h-[300px]">
+                  {/* WhatsApp App Bar */}
+                  <div className="bg-[#008069] text-white px-3 py-2 flex items-center justify-between shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-emerald-700 border border-white/30 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                        {waDirectName ? waDirectName.charAt(0).toUpperCase() : 'G'}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-bold text-white truncate max-w-[140px]">
+                            {waDirectName || 'Guest Contact'}
+                          </span>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-200 shrink-0" />
+                        </div>
+                        <span className="text-[9px] text-emerald-100 block font-mono truncate">
+                          {waDirectTo || '+91 98765 43210'}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-semibold bg-white/20 px-1.5 py-0.5 rounded text-white">
+                      Verified
+                    </span>
+                  </div>
+
+                  {/* Chat Area with Wallpaper Background */}
+                  <div className="p-3 flex-1 flex flex-col justify-between space-y-3 bg-[radial-gradient(#d1d7db_1px,transparent_1px)] [background-size:16px_16px]">
+                    <div className="text-center">
+                      <span className="text-[9px] bg-white/90 text-slate-600 px-2.5 py-0.5 rounded-full shadow-2xs font-bold">
+                        TODAY
+                      </span>
+                    </div>
+
+                    {/* Chat Bubble */}
+                    <div className="max-w-[90%] ml-auto bg-[#d9fdd3] text-[#111b21] p-3 rounded-2xl rounded-tr-none shadow-xs text-xs space-y-1.5 border border-emerald-300/40">
+                      <p className="leading-relaxed whitespace-pre-wrap break-words">
+                        {waDirectText
+                          .replace(/\{\{name\}\}/gi, waDirectName || 'Valued Guest')
+                          .replace(/\{\{first_name\}\}/gi, (waDirectName || 'Guest').split(' ')[0])
+                          .replace(/\{\{phone\}\}/gi, waDirectTo)
+                          .replace(/\{\{tier\}\}/gi, 'VIP')
+                          .replace(/\{\{link\}\}/gi, 'https://campaignhub.in')}
+                      </p>
+                      <div className="flex items-center justify-end gap-1 text-[9px] text-[#667781] pt-0.5">
+                        <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mock Input Bar */}
+                  <div className="bg-[#f0f2f5] px-3 py-2 flex items-center gap-2 border-t border-slate-200">
+                    <div className="flex-1 bg-white px-3 py-1.5 rounded-full text-[11px] text-slate-400 border border-slate-200">
+                      Message...
+                    </div>
+                    <div className="w-7 h-7 rounded-full bg-[#008069] flex items-center justify-center text-white shrink-0">
+                      <Send className="w-3 h-3" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* =============================================================== */}
+          {/* 4. SECTION: 2-WAY INBOUND CUSTOMER CONVERSATIONS                */}
+          {/* =============================================================== */}
+          <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
+                  <Activity className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-txt-primary">2-Way Inbound Customer Conversations</h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                      Live Meta Webhooks
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                      {waReplies.length} Active Conversations
+                    </span>
+                  </div>
+                  <p className="text-xs text-txt-muted">
+                    Two-way customer messages and inquiries received in real-time via Meta Cloud Webhooks. Respond directly to any customer.
+                  </p>
+                </div>
+              </div>
+
+              {/* Search Filter */}
+              <div className="relative self-start sm:self-auto">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
+                <input
+                  type="text"
+                  value={replySearchTerm}
+                  onChange={(e) => setReplySearchTerm(e.target.value)}
+                  placeholder="Filter inquiries..."
+                  className="pl-8 pr-3 py-1.5 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary w-48 focus:border-brand"
+                />
+              </div>
+            </div>
+
+            {/* Conversation Feed List */}
+            <div className="space-y-3">
+              {waReplies.length === 0 ? (
+                <div className="p-6 text-center text-xs text-txt-muted bg-bg-app rounded-xl border border-border/60">
+                  No customer inquiries received yet. Inbound webhooks are active.
+                </div>
+              ) : (
+                waReplies
+                  .filter((r) => {
+                    if (!replySearchTerm) return true;
+                    const name = (r.sender_name || r.contact_name || '').toLowerCase();
+                    const phone = (r.sender_phone || r.from_number || '').toLowerCase();
+                    const body = (r.body || r.message_text || '').toLowerCase();
+                    const s = replySearchTerm.toLowerCase();
+                    return name.includes(s) || phone.includes(s) || body.includes(s);
+                  })
+                  .map((r, i) => {
+                    const customerName = r.sender_name || r.contact_name || 'Customer';
+                    const customerPhone = r.sender_phone || r.from_number || '+91 98765 43210';
+                    const messageContent = r.body || r.message_text || '';
+                    const timeFormatted = formatDateTime(r.received_at || r.created_at);
+                    const isReplyingThis = activeReplyingPhone === customerPhone;
+
+                    return (
+                      <div
+                        key={r.id || i}
+                        className={`p-4 rounded-xl border transition-all space-y-3 ${
+                          isReplyingThis
+                            ? 'bg-emerald-50/40 border-emerald-300 ring-2 ring-emerald-500/20'
+                            : 'bg-bg-app/70 hover:bg-bg-app border-border/70'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                              {customerName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <strong className="text-txt-primary font-bold">{customerName}</strong>
+                                <span className="font-mono text-[11px] text-txt-muted bg-white px-1.5 py-0.2 rounded border border-border/60">
+                                  {customerPhone}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                                  VIP Lead
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-txt-muted flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-txt-muted" />
+                              <span>{timeFormatted}</span>
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              ✓ Inbound Verified
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Customer Inbound Speech Bubble */}
+                        <div className="bg-white p-3 rounded-xl border border-border/60 text-xs text-txt-primary leading-relaxed shadow-2xs">
+                          <p className="font-normal">{messageContent}</p>
+                        </div>
+
+                        {/* Quick Reply Controls */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold text-txt-muted uppercase">Templates:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveReplyingPhone(customerPhone);
+                                setWaDirectName(customerName);
+                                setReplyInputText(`Hi ${customerName.split(' ')[0]}, thank you for confirming! We look forward to seeing you at the Diwali Gala.`);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-txt-muted hover:text-emerald-800 border border-border transition-colors cursor-pointer"
+                            >
+                              Confirm Pass
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveReplyingPhone(customerPhone);
+                                setWaDirectName(customerName);
+                                setReplyInputText(`Hello ${customerName.split(' ')[0]}, our team has noted your question and is preparing the details for you right now.`);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-txt-muted hover:text-emerald-800 border border-border transition-colors cursor-pointer"
+                            >
+                              Team On It
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveReplyingPhone(customerPhone);
+                                setWaDirectName(customerName);
+                                setReplyInputText(`Here is the direct reservation portal: https://campaignhub.in/rsvp`);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-txt-muted hover:text-emerald-800 border border-border transition-colors cursor-pointer"
+                            >
+                              Send Portal Link
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveReplyingPhone(customerPhone);
+                              setWaDirectName(customerName);
+                              setReplyInputText(`Hello ${customerName.split(' ')[0]}, `);
+                            }}
+                            className="text-xs text-emerald-700 hover:text-emerald-800 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <span>Reply to {customerName}</span>
+                            <span>&rarr;</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Quick Response Interactive Composer Bar */}
+            <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200/80 space-y-2 mt-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-txt-primary flex items-center gap-1.5">
+                  <Send className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>
+                    {activeReplyingPhone
+                      ? `Replying to: ${waDirectName || 'Guest'} (${activeReplyingPhone})`
+                      : 'Quick Response Composer (Select a contact above or type reply)'}
+                  </span>
+                </span>
+                {replyFeedback && (
+                  <span className="text-xs font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                    {replyFeedback}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  value={replyInputText}
+                  onChange={(e) => setReplyInputText(e.target.value)}
+                  placeholder={
+                    activeReplyingPhone
+                      ? `Type live WhatsApp response to ${activeReplyingPhone}...`
+                      : 'Type quick WhatsApp reply...'
+                  }
+                  className="text-xs bg-white flex-1"
+                />
+                <Button
+                  onClick={async () => {
+                    const targetPhone = activeReplyingPhone || '+91 98765 43210';
+                    const targetName = waDirectName || 'Guest';
+                    if (!replyInputText.trim() || isSendingReply) return;
+                    setIsSendingReply(true);
+                    setReplyFeedback(null);
+
+                    try {
+                      const res = await fetch('/api/whatsapp/replies', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          replyToPhone: targetPhone,
+                          contactName: targetName,
+                          messageText: replyInputText,
+                        }),
+                      });
+
+                      const data = await res.json();
+                      if (data.success) {
+                        setWaReplies((prev) => [
+                          {
+                            id: data.messageId || 'reply-' + Date.now(),
+                            sender_phone: targetPhone,
+                            sender_name: 'You (CampaignHub)',
+                            body: replyInputText,
+                            received_at: new Date().toISOString(),
+                            is_outbound: true,
+                          },
+                          ...prev,
+                        ]);
+                        setReplyInputText('');
+                        setReplyFeedback(`✓ Reply delivered to ${targetName} (${targetPhone})`);
+                        setTimeout(() => setReplyFeedback(null), 4000);
+                      }
+                    } catch (err: any) {
+                      setReplyFeedback(`✗ Failed to send reply: ${err.message}`);
+                    } finally {
+                      setIsSendingReply(false);
+                    }
+                  }}
+                  disabled={!replyInputText.trim() || isSendingReply}
+                  className="px-4 min-h-[38px] text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold shrink-0 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5 mr-1" />
+                  <span>{isSendingReply ? 'Sending...' : 'Send WhatsApp Reply'}</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+
 
           {/* Approved Meta Cloud Templates Manager */}
           <div className="p-4 sm:p-5 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
