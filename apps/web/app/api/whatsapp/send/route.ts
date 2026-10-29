@@ -4,9 +4,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { to, name, message, templateId, imageUrl } = body;
+    const to = (body.to || body.recipientPhone || '').trim();
+    const name = (body.name || body.recipientName || 'Valued Customer').trim();
+    const message = (body.message || body.messageText || '').trim();
+    const templateId = body.templateId || body.templateName || '';
+    const imageUrl = body.imageUrl || body.mediaUrl || '';
 
-    if (!to || !to.trim()) {
+    if (!to) {
       return NextResponse.json(
         { success: false, error: 'Recipient phone number is required' },
         { status: 400 }

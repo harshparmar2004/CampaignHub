@@ -40,6 +40,11 @@ import {
   ChevronDown,
   LayoutGrid,
   Bot,
+  Wifi,
+  Camera,
+  ArrowLeft,
+  Video,
+  MoreVertical,
 } from 'lucide-react';
 import {
   WhatsAppLogo,
@@ -122,6 +127,7 @@ function SocialHubContent() {
   const [tplCategory, setTplCategory] = useState<'MARKETING' | 'UTILITY'>('MARKETING');
   const [tplBody, setTplBody] = useState('Hello {{1}}, here is your exclusive VIP update from CampaignHub!');
   const [isSubmittingTpl, setIsSubmittingTpl] = useState(false);
+  const [isSyncingTemplates, setIsSyncingTemplates] = useState(false);
 
   // Direct WhatsApp Composer Simulator State
   const [waDirectTo, setWaDirectTo] = useState('+91 98765 43210');
@@ -334,12 +340,134 @@ function SocialHubContent() {
     }
   };
 
-  // Inline WhatsApp Quick Reply (Legacy / Broadcaster compatibility)
-  const [replyInputText, setReplyInputText] = useState('');
-  const [activeReplyingPhone, setActiveReplyingPhone] = useState<string | null>(null);
-  const [isSendingReply, setIsSendingReply] = useState(false);
-  const [replyFeedback, setReplyFeedback] = useState<string | null>(null);
-  const [replySearchTerm, setReplySearchTerm] = useState('');
+  // Inline Conversation Reply Drafts Map
+  const [replyDrafts, setReplyDrafts] = useState<{ [id: string]: string }>({});
+  const [replyingConvId, setReplyingConvId] = useState<string | null>(null);
+
+  const handleSendConversationReply = async (convId: string) => {
+    const text = replyDrafts[convId];
+    if (!text || !text.trim() || replyingConvId) return;
+
+    const conv = conversations.find((c) => c.id === convId);
+    if (!conv) return;
+
+    setReplyingConvId(convId);
+    const newMsg: ChatMessage = {
+      id: 'msg-' + Date.now(),
+      sender: 'agent',
+      text: text.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'delivered',
+    };
+
+    setConversations((prev) =>
+      prev.map((c) => {
+        if (c.id === convId) {
+          return {
+            ...c,
+            lastActive: 'Just now',
+            unreadCount: 0,
+            messages: [...c.messages, newMsg],
+          };
+        }
+        return c;
+      })
+    );
+
+    setReplyDrafts((prev) => ({ ...prev, [convId]: '' }));
+
+    try {
+      await fetch('/api/whatsapp/replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          replyToPhone: conv.phone,
+          contactName: conv.contactName,
+          messageText: text.trim(),
+        }),
+      });
+    } catch (err) {
+      console.warn('Reply dispatch failed:', err);
+    } finally {
+      setReplyingConvId(null);
+    }
+  };
+
+  const handleExecuteWaDirect = async () => {
+    if (isSendingWaDirect || !waDirectText.trim() || !waDirectTo.trim()) return;
+    setIsSendingWaDirect(true);
+    setWaDirectFeedback(null);
+
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: waDirectTo,
+          recipientPhone: waDirectTo,
+          name: waDirectName || 'Valued Customer',
+          recipientName: waDirectName || 'Valued Customer',
+          message: waDirectText,
+          messageText: waDirectText,
+          templateId: selectedTemplateForDirect !== 'custom' ? selectedTemplateForDirect : undefined,
+          templateName: selectedTemplateForDirect !== 'custom' ? selectedTemplateForDirect : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        const newLog = {
+          id: data.logId || `log-${Date.now()}`,
+          campaign_id: 'direct-blast',
+          channel: 'whatsapp',
+          status: 'delivered',
+          error_message: null,
+          created_at: new Date().toISOString(),
+          delivered_at: new Date().toISOString(),
+          cost_inr: data.cost_inr || 0.82,
+          meta_message_id: data.providerMessageId || `wamid.HBgM${Date.now()}`,
+          latency_ms: 1100,
+          contacts: {
+            id: `c-${Date.now()}`,
+            name: waDirectName || 'Customer',
+            phone: waDirectTo,
+            email: `${(waDirectName || 'user').toLowerCase().replace(/\s+/g, '')}@patron.com`,
+          },
+        };
+
+        setWaLogs((prev) => [newLog, ...prev]);
+        setWaStats((prev) => ({
+          ...prev,
+          sent: prev.sent + 1,
+          delivered: prev.delivered + 1,
+          cost_inr: Number((prev.cost_inr + (data.cost_inr || 0.82)).toFixed(2)),
+        }));
+
+        setWaDirectFeedback(
+          `✓ Dispatched to Meta Cloud API! WAMID: ${data.providerMessageId || 'Confirmed'}`
+        );
+      } else {
+        setWaDirectFeedback(`✗ Transmission failed: ${data.error || 'Server error'}`);
+      }
+    } catch (err: any) {
+      setWaDirectFeedback(`✗ Error: ${err.message}`);
+    } finally {
+      setIsSendingWaDirect(false);
+      setTimeout(() => setWaDirectFeedback(null), 6000);
+    }
+  };
+
+  const getInterpolatedPreview = (text: string, name: string, phone: string) => {
+    const targetName = name?.trim() || 'Arjun Mehta';
+    const firstName = targetName.split(' ')[0] || 'Arjun';
+    const targetPhone = phone?.trim() || '+91 98765 43210';
+    return (text || '')
+      .replace(/\{\{name\}\}/gi, targetName)
+      .replace(/\{\{first_name\}\}/gi, firstName)
+      .replace(/\{\{phone\}\}/gi, targetPhone)
+      .replace(/\{\{tier\}\}/gi, 'VIP Patron')
+      .replace(/\{\{link\}\}/gi, 'https://campaignhub.in/rsvp');
+  };
 
   // Safe Date Formatter helper
   const formatDateTime = (dateStr?: string) => {
@@ -827,999 +955,745 @@ function SocialHubContent() {
             </div>
           </div>
 
-          {/* Workspace Mode Switcher (Sleek Segmented Workstation Tabs) */}
-          <div className="bg-white rounded-xl border border-border/80 p-1.5 shadow-2xs flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            <button
-              type="button"
-              onClick={() => setWorkspaceView('inbox')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspaceView === 'inbox'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-txt-muted hover:text-txt-primary hover:bg-bg-app'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Live 2-Way Inbox</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  workspaceView === 'inbox'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {conversations.length} Active
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWorkspaceView('broadcast')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspaceView === 'broadcast'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-txt-muted hover:text-txt-primary hover:bg-bg-app'
-              }`}
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Direct Broadcast Studio</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWorkspaceView('templates')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspaceView === 'templates'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-txt-muted hover:text-txt-primary hover:bg-bg-app'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Meta Approved Templates</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  workspaceView === 'templates'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-bg-app text-txt-muted border border-border'
-                }`}
-              >
-                {waTemplates.length || 2}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWorkspaceView('ledger')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspaceView === 'ledger'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-txt-muted hover:text-txt-primary hover:bg-bg-app'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Delivery Ledger &amp; Telemetry</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  workspaceView === 'ledger'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-bg-app text-txt-muted border border-border'
-                }`}
-              >
-                {filteredWaLogs.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setWorkspaceView('media')}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                workspaceView === 'media'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'text-txt-muted hover:text-txt-primary hover:bg-bg-app'
-              }`}
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>Media Vault</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  workspaceView === 'media'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-bg-app text-txt-muted border border-border'
-                }`}
-              >
-                {getChannelMedia('WhatsApp').length}
-              </span>
-            </button>
-          </div>
-
           {/* ===================================================================== */}
-          {/* WORKSPACE VIEW 1: LIVE 2-WAY INBOX & CHAT CONSOLE (CENTERPIECE)       */}
+          {/* 1. CORE COMMAND CENTER: LEFT-TO-RIGHT BALANCED ARCHITECTURE           */}
           {/* ===================================================================== */}
-          {workspaceView === 'inbox' && (
-            <div className="bg-white rounded-2xl border border-border/80 shadow-2xs overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[620px]">
-              {/* PANE 1: Customer Conversation List (3.5 cols) */}
-              <div className="lg:col-span-4 border-r border-border/70 flex flex-col bg-bg-app/30">
-                {/* Search & Filter Header */}
-                <div className="p-3 border-b border-border/70 space-y-2 bg-white">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-txt-primary uppercase tracking-wider flex items-center gap-1.5">
-                      <Inbox className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Customer Inquiries</span>
-                    </span>
-                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                      Live Stream
-                    </span>
-                  </div>
-
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
-                    <input
-                      type="text"
-                      value={chatSearchTerm}
-                      onChange={(e) => setChatSearchTerm(e.target.value)}
-                      placeholder="Search customer or phone..."
-                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary focus:border-brand"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1 pt-1">
-                    {(['all', 'unread', 'vip'] as const).map((filter) => (
-                      <button
-                        key={filter}
-                        type="button"
-                        onClick={() => setChatFilter(filter)}
-                        className={`text-[10px] px-2.5 py-1 rounded-md font-bold uppercase transition-colors cursor-pointer ${
-                          chatFilter === filter
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-bg-app text-txt-muted hover:text-txt-primary hover:bg-border/60'
-                        }`}
-                      >
-                        {filter === 'all' ? 'All Inquiries' : filter === 'unread' ? 'Unread (1)' : 'VIP Patrons'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Conversation List Items */}
-                <div className="flex-1 overflow-y-auto divide-y divide-border/50">
-                  {conversations
-                    .filter((c) => {
-                      if (chatFilter === 'unread' && c.unreadCount === 0) return false;
-                      if (chatFilter === 'vip' && !c.tags.some((t) => t.toLowerCase().includes('vip'))) return false;
-                      if (!chatSearchTerm) return true;
-                      const term = chatSearchTerm.toLowerCase();
-                      return (
-                        c.contactName.toLowerCase().includes(term) ||
-                        c.phone.toLowerCase().includes(term) ||
-                        c.messages.some((m) => m.text.toLowerCase().includes(term))
-                      );
-                    })
-                    .map((conv) => {
-                      const isSelected = activeConvId === conv.id;
-                      const lastMsg = conv.messages[conv.messages.length - 1];
-
-                      return (
-                        <div
-                          key={conv.id}
-                          onClick={() => {
-                            setActiveConvId(conv.id);
-                            // Mark as read
-                            setConversations((prev) =>
-                              prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0 } : c))
-                            );
-                          }}
-                          className={`p-3 transition-all cursor-pointer border-l-4 ${
-                            isSelected
-                              ? 'bg-emerald-50/80 border-emerald-600 shadow-2xs'
-                              : 'bg-white hover:bg-bg-app/70 border-transparent'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs ${
-                                  isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-white'
-                                }`}
-                              >
-                                {conv.contactName.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <strong className="text-xs font-bold text-txt-primary truncate">
-                                    {conv.contactName}
-                                  </strong>
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                                </div>
-                                <span className="text-[10px] text-txt-muted font-mono block">
-                                  {conv.phone}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0 space-y-1">
-                              <span className="text-[9px] text-txt-muted block font-medium">
-                                {conv.lastActive}
-                              </span>
-                              {conv.unreadCount > 0 && (
-                                <span className="inline-block px-1.5 py-0.2 rounded-full bg-emerald-600 text-white text-[9px] font-black">
-                                  {conv.unreadCount}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <p className="text-[11px] text-txt-muted mt-1.5 line-clamp-1">
-                            {lastMsg ? lastMsg.text : 'No messages'}
-                          </p>
-
-                          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                            <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-bold border border-purple-200">
-                              {conv.tier}
-                            </span>
-                            <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-700 font-medium">
-                              Spend: {conv.spendInr}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-
-              {/* PANE 2: Active Chat Thread Window (5.5 cols) */}
-              {(() => {
-                const currentConv =
-                  conversations.find((c) => c.id === activeConvId) || conversations[0];
-
-                return (
-                  <div className="lg:col-span-5 flex flex-col border-r border-border/70 min-h-[620px] bg-[#efeae2]">
-                    {/* Active Conversation App Header */}
-                    <div className="bg-[#008069] text-white p-3 flex items-center justify-between shadow-xs">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-emerald-800 border border-white/30 flex items-center justify-center font-bold text-xs text-white shrink-0">
-                          {currentConv ? currentConv.contactName.charAt(0).toUpperCase() : 'G'}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="text-xs font-bold text-white">
-                              {currentConv ? currentConv.contactName : 'Guest Contact'}
-                            </h4>
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/20 text-white font-semibold">
-                              VIP
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-emerald-100">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
-                            <span className="font-mono">{currentConv ? currentConv.phone : ''}</span>
-                            <span>&bull;</span>
-                            <span>Webhook Active</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWaDirectTo(currentConv.phone);
-                            setWaDirectName(currentConv.contactName);
-                            setWorkspaceView('broadcast');
-                          }}
-                          className="text-[10px] bg-white/15 hover:bg-white/25 text-white font-bold px-2.5 py-1 rounded-md transition-colors cursor-pointer"
-                        >
-                          Open in Studio &rarr;
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Chat Bubble Stream */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(#d1d7db_1px,transparent_1px)] [background-size:16px_16px] max-h-[460px]">
-                      <div className="text-center my-1">
-                        <span className="text-[9px] bg-white/90 text-slate-600 px-3 py-0.5 rounded-full shadow-2xs font-bold border border-slate-200">
-                          TODAY
-                        </span>
-                      </div>
-
-                      {currentConv &&
-                        currentConv.messages.map((msg) => {
-                          const isAgent = msg.sender === 'agent';
-
-                          return (
-                            <div
-                              key={msg.id}
-                              className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}
-                            >
-                              <div
-                                className={`max-w-[82%] p-2.5 rounded-2xl shadow-xs text-xs space-y-1 ${
-                                  isAgent
-                                    ? 'bg-[#d9fdd3] text-[#111b21] rounded-tr-none border border-emerald-300/40'
-                                    : 'bg-white text-[#111b21] rounded-tl-none border border-border/60'
-                                }`}
-                              >
-                                <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                                <div className="flex items-center justify-end gap-1 text-[9px] text-[#667781] pt-0.5">
-                                  <span>{msg.timestamp}</span>
-                                  {isAgent && <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-
-                    {/* Delivery Feedback Banner */}
-                    {chatDeliveryNotice && (
-                      <div className="mx-3 my-1 px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-300 flex items-center justify-between">
-                        <span>{chatDeliveryNotice}</span>
-                        <Check className="w-3.5 h-3.5" />
-                      </div>
-                    )}
-
-                    {/* Quick Response Shortcut Chips */}
-                    <div className="p-2.5 bg-[#f0f2f5] border-t border-slate-200 space-y-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase mr-1">
-                          Quick Replies:
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChatInputText(
-                              `Hi ${currentConv.contactName.split(' ')[0]}, your VIP Access Pass for the Diwali Festive Gala is confirmed! Show this message at the concierge desk.`
-                            )
-                          }
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
-                        >
-                          Confirm Pass
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChatInputText(
-                              `Hello ${currentConv.contactName.split(' ')[0]}, our team has noted your question and is preparing the reservation details for you now.`
-                            )
-                          }
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
-                        >
-                          Team On It
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setChatInputText(
-                              `Here is the exclusive reservation portal and gala schedule: https://campaignhub.in/rsvp`
-                            )
-                          }
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
-                        >
-                          Gala Itinerary
-                        </button>
-                      </div>
-
-                      {/* Interactive Live WhatsApp Reply Composer */}
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={chatInputText}
-                          onChange={(e) => setChatInputText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              handleSendLiveChat();
-                            }
-                          }}
-                          placeholder={`Message ${currentConv.contactName}... (Press Enter to Send)`}
-                          className="text-xs bg-white rounded-xl flex-1 border-slate-300"
-                        />
-                        <Button
-                          onClick={handleSendLiveChat}
-                          disabled={!chatInputText.trim() || isSendingChat}
-                          className="gap-1.5 bg-[#008069] hover:bg-emerald-700 text-white min-h-[38px] px-4 rounded-xl text-xs font-bold shrink-0 cursor-pointer"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>{isSendingChat ? 'Sending...' : 'Send'}</span>
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* PANE 3: Customer CRM Profile & Telemetry Card (3 cols) */}
-              {(() => {
-                const currentConv =
-                  conversations.find((c) => c.id === activeConvId) || conversations[0];
-
-                return (
-                  <div className="lg:col-span-3 p-4 bg-white flex flex-col justify-between space-y-4">
-                    <div className="space-y-4">
-                      {/* Customer Header */}
-                      <div className="text-center pt-2">
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-black text-xl mx-auto shadow-md ring-4 ring-emerald-100">
-                          {currentConv ? currentConv.contactName.charAt(0).toUpperCase() : 'G'}
-                        </div>
-                        <h4 className="text-sm font-bold text-txt-primary mt-2">
-                          {currentConv ? currentConv.contactName : 'Guest'}
-                        </h4>
-                        <span className="text-[11px] font-mono text-txt-muted block">
-                          {currentConv ? currentConv.phone : ''}
-                        </span>
-                        <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200">
-                          <Sparkles className="w-3 h-3 text-purple-600" />
-                          <span>{currentConv ? currentConv.tier : 'VIP'}</span>
-                        </div>
-                      </div>
-
-                      {/* CRM Intelligence */}
-                      <div className="space-y-2.5 text-xs pt-2 border-t border-border/70">
-                        <div className="p-3 bg-bg-app rounded-xl border border-border/60 space-y-1">
-                          <span className="text-[10px] uppercase font-bold text-txt-muted block">
-                            Total Lifetime Spend
-                          </span>
-                          <strong className="text-lg font-black text-emerald-700 block">
-                            {currentConv ? currentConv.spendInr : '₹0'}
-                          </strong>
-                          <span className="text-[10px] text-emerald-700 font-medium block">
-                            Top 5% Patron Segment
-                          </span>
-                        </div>
-
-                        <div className="space-y-1">
-                          <span className="text-[10px] uppercase font-bold text-txt-muted block">
-                            Communication Opt-In
-                          </span>
-                          <div className="flex items-center gap-1 text-[11px] text-emerald-800 font-semibold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>WhatsApp E.164 Opted-In</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <span className="text-[10px] uppercase font-bold text-txt-muted block">
-                            Patron Tags
-                          </span>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {currentConv &&
-                              currentConv.tags.map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-bg-app text-txt-primary border border-border/80"
-                                >
-                                  {tag}
-                                </span>
-                              ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Quick CRM Action Buttons */}
-                    <div className="space-y-2 pt-3 border-t border-border/70">
-                      <Button
-                        onClick={() => {
-                          setWaDirectTo(currentConv.phone);
-                          setWaDirectName(currentConv.contactName);
-                          setWorkspaceView('broadcast');
-                        }}
-                        className="w-full text-xs min-h-[36px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                      >
-                        <Send className="w-3.5 h-3.5 mr-1.5" />
-                        <span>Direct Campaign Blast</span>
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(currentConv.phone);
-                          alert('Copied ' + currentConv.phone + ' to clipboard!');
-                        }}
-                        className="w-full text-xs py-1.5 rounded-lg border border-border text-txt-muted hover:text-txt-primary hover:bg-bg-app font-semibold transition-colors cursor-pointer"
-                      >
-                        Copy Phone Number
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ===================================================================== */}
-          {/* WORKSPACE VIEW 2: DIRECT BROADCAST STUDIO                             */}
-          {/* ===================================================================== */}
-          {workspaceView === 'broadcast' && (
-            <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-border/60">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* ================================================================= */}
+            {/* LEFT COLUMN: BROADCASTER & HIGH-FIDELITY SMARTPHONE SCREEN        */}
+            {/* ================================================================= */}
+            <div className="lg:col-span-6 bg-white rounded-2xl border border-border/80 p-5 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-border/70">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
                     <Send className="w-4 h-4 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-txt-primary">Direct WhatsApp Broadcast Studio</h3>
-                    <p className="text-xs text-txt-muted">
-                      Compose 1:1 messages or template blasts with token merge tags and real-time smartphone preview.
-                    </p>
+                    <h3 className="font-bold text-txt-primary text-sm">Direct WhatsApp Message &amp; Template Broadcaster</h3>
+                    <p className="text-[11px] text-txt-muted">Real-time mobile simulation &amp; audited Meta Cloud v21.0 dispatch.</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-[11px] text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Meta Cloud API v21.0</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-300">
+                  Cloud API v21.0
+                </span>
+              </div>
+
+              {/* Quick Select Recipient Pills */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase font-bold text-txt-muted tracking-wider block">
+                  Quick Select Target Patron:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { name: 'Arjun Mehta', phone: '+91 98765 43210' },
+                    { name: 'Priya Patel', phone: '+91 98234 56789' },
+                    { name: 'Aarav Sharma', phone: '+91 98111 22334' },
+                    { name: 'Rohan Mehta', phone: '+91 98333 44556' },
+                  ].map((patron) => (
+                    <button
+                      key={patron.phone}
+                      type="button"
+                      onClick={() => {
+                        setWaDirectName(patron.name);
+                        setWaDirectTo(patron.phone);
+                      }}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all cursor-pointer ${
+                        waDirectTo === patron.phone
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold'
+                          : 'bg-bg-app hover:bg-border/60 text-txt-primary border-border/80'
+                      }`}
+                    >
+                      {patron.name} ({patron.phone})
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* 2-Column Balanced Layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                {/* Form Controls (7 cols) */}
-                <div className="lg:col-span-7 space-y-4">
-                  {/* Quick Select Buttons */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-bold uppercase text-txt-muted mr-1">Quick Select:</span>
+              {/* Inputs: Target Phone and Contact Name */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-txt-muted tracking-wider block mb-1">
+                    Target Phone (+Country)
+                  </label>
+                  <Input
+                    value={waDirectTo}
+                    onChange={(e) => setWaDirectTo(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-txt-muted tracking-wider block mb-1">
+                    Contact Name
+                  </label>
+                  <Input
+                    value={waDirectName}
+                    onChange={(e) => setWaDirectName(e.target.value)}
+                    placeholder="e.g. Arjun Mehta"
+                    className="text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Template / Format Selector */}
+              <div>
+                <label className="text-[10px] uppercase font-bold text-txt-muted tracking-wider block mb-1">
+                  Message Format / Template
+                </label>
+                <select
+                  value={selectedTemplateForDirect}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedTemplateForDirect(val);
+                    if (val === 'custom') {
+                      setWaDirectText(
+                        `Hello ${waDirectName || 'Arjun'}, your VIP Access Pass for the Diwali Festive Gala is confirmed! Show this message at the concierge desk.`
+                      );
+                    } else {
+                      const t = waTemplates.find((x) => x.name === val);
+                      if (t) setWaDirectText(t.body);
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary font-medium"
+                >
+                  <option value="custom">Custom Direct Message (Instant Text/Media)</option>
+                  {waTemplates.map((tpl) => (
+                    <option key={tpl.id} value={tpl.name}>
+                      {tpl.name} ({tpl.status} — {tpl.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Insert Dynamic Merge Variables */}
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-txt-muted tracking-wider block">
+                  Insert Merge Variables:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {['name', 'first_name', 'phone', 'tier', 'link'].map((tag) => (
                     <button
+                      key={tag}
                       type="button"
-                      onClick={() => {
-                        setWaDirectTo('+91 98765 43210');
-                        setWaDirectName('Arjun Mehta');
-                      }}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
+                      onClick={() => setWaDirectText((prev) => `${prev} {{${tag}}}`)}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-mono font-semibold transition-colors cursor-pointer"
                     >
-                      Arjun Mehta (+91 98765 43210)
+                      + &#123;&#123;{tag}&#125;&#125;
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWaDirectTo('+91 98234 56789');
-                        setWaDirectName('Priya Patel');
-                      }}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
-                    >
-                      Priya Patel (+91 98234 56789)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWaDirectTo('+91 98111 22334');
-                        setWaDirectName('Aarav Sharma');
-                      }}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-bg-app hover:bg-border/60 text-txt-primary border border-border/80 font-medium transition-colors cursor-pointer"
-                    >
-                      Aarav Sharma (+91 98111 22334)
-                    </button>
-                  </div>
+                  ))}
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Target Phone (+Country)</label>
-                      <Input
-                        value={waDirectTo}
-                        onChange={(e) => setWaDirectTo(e.target.value)}
-                        placeholder="+91 98765 43210"
-                        className="w-full text-xs font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Contact Name</label>
-                      <Input
-                        value={waDirectName}
-                        onChange={(e) => setWaDirectName(e.target.value)}
-                        placeholder="e.g. Arjun Mehta"
-                        className="w-full text-xs"
-                      />
-                    </div>
-                  </div>
+              {/* Message Content Textarea */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] uppercase font-bold text-txt-muted tracking-wider">
+                    Message Body Content
+                  </label>
+                  <span className="text-[10px] text-txt-muted font-mono">
+                    {waDirectText.length} characters &bull; ~₹0.82/conv
+                  </span>
+                </div>
+                <Textarea
+                  value={waDirectText}
+                  onChange={(e) => setWaDirectText(e.target.value)}
+                  rows={3}
+                  placeholder="Type WhatsApp message here..."
+                  className="text-xs leading-relaxed"
+                />
+              </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Message Format / Template</label>
-                      <select
-                        value={selectedTemplateForDirect}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setSelectedTemplateForDirect(val);
-                          if (val === 'custom') {
-                            setWaDirectText(
-                              'Hello ' +
-                                (waDirectName || 'there') +
-                                ', your VIP Access Pass for the Diwali Festive Gala is confirmed! Show this message at the concierge desk.'
-                            );
-                          } else {
-                            const found = waTemplates.find((t) => t.id === val || t.name === val);
-                            if (found) {
-                              setWaDirectText(found.body.replace('{{1}}', waDirectName || 'Guest'));
-                            }
-                          }
-                        }}
-                        className="w-full px-3 py-2 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary font-medium"
-                      >
-                        <option value="custom">Custom Direct Message (Instant Text/Media)</option>
-                        {waTemplates.map((t) => (
-                          <option key={t.id} value={t.name}>
-                            Meta Template: {t.name} ({t.category})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-txt-muted uppercase block mb-1">Insert Merge Variables</label>
-                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                        {['{{name}}', '{{first_name}}', '{{phone}}', '{{tier}}', '{{link}}'].map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => setWaDirectText((prev) => prev + ' ' + tag)}
-                            className="text-[10px] font-mono px-2 py-1 rounded bg-bg-app hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-border text-txt-muted font-bold transition-colors cursor-pointer"
-                          >
-                            + {tag}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[11px] font-bold text-txt-muted uppercase block">Message Body Content</label>
-                      <span className="text-[10px] text-txt-muted">{waDirectText.length} characters</span>
-                    </div>
-                    <Textarea
-                      value={waDirectText}
-                      onChange={(e) => setWaDirectText(e.target.value)}
-                      rows={4}
-                      placeholder="Type your WhatsApp broadcast message..."
-                      className="w-full text-xs font-normal leading-relaxed"
-                    />
-                  </div>
-
-                  {/* Send Action */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                    <div className="text-xs font-semibold">
-                      {waDirectFeedback && (
-                        <span
-                          className={
-                            waDirectFeedback.startsWith('✓')
-                              ? 'text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200'
-                              : 'text-rose-700 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200'
-                          }
-                        >
-                          {waDirectFeedback}
-                        </span>
-                      )}
-                    </div>
-                    <Button
-                      onClick={async () => {
-                        if (!waDirectText.trim() || !waDirectTo.trim() || isSendingWaDirect) return;
-                        setIsSendingWaDirect(true);
-                        setWaDirectFeedback(null);
-
-                        try {
-                          const res = await fetch('/api/whatsapp/send', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              to: waDirectTo,
-                              name: waDirectName,
-                              message: waDirectText,
-                              templateId:
-                                selectedTemplateForDirect !== 'custom'
-                                  ? selectedTemplateForDirect
-                                  : undefined,
-                            }),
-                          });
-
-                          const data = await res.json();
-                          if (data.success) {
-                            setWaLogs((prev) => [
-                              {
-                                id: data.messageId || 'msg-live-' + Date.now(),
-                                contact_id: 'c-new',
-                                channel: 'whatsapp',
-                                status: data.status || 'delivered',
-                                provider_message_id: data.providerMessageId,
-                                cost_inr: data.cost_inr || 0.82,
-                                sent_at: data.delivered_at || new Date().toISOString(),
-                                delivered_at: data.delivered_at || new Date().toISOString(),
-                                contacts: { name: waDirectName, phone: waDirectTo, email: '', tier: 'vip' },
-                              },
-                              ...prev,
-                            ]);
-                            setWaStats((prev) => ({
-                              ...prev,
-                              sent: prev.sent + 1,
-                              delivered: prev.delivered + 1,
-                              cost_inr: Number((prev.cost_inr + (data.cost_inr || 0.82)).toFixed(2)),
-                            }));
-                            setWaDirectFeedback(
-                              `✓ Message delivered to ${waDirectTo} (ID: ${data.providerMessageId || 'Confirmed'})`
-                            );
-                          } else {
-                            setWaDirectFeedback(`✗ Transmission failed: ${data.error || 'Server error'}`);
-                          }
-                        } catch (err: any) {
-                          setWaDirectFeedback(`✗ Error: ${err.message}`);
-                        } finally {
-                          setIsSendingWaDirect(false);
-                          setTimeout(() => setWaDirectFeedback(null), 5000);
-                        }
-                      }}
-                      disabled={isSendingWaDirect || !waDirectText.trim() || !waDirectTo.trim()}
-                      className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white min-h-[40px] py-2 px-5 text-xs font-bold rounded-xl shadow-xs shrink-0 cursor-pointer"
-                    >
-                      <Send className="w-4 h-4" />
-                      <span>{isSendingWaDirect ? 'Sending via Meta Cloud API...' : '⚡ Execute & Send WhatsApp Direct'}</span>
-                    </Button>
-                  </div>
+              {/* THE SCREEN: HIGH-FIDELITY SMARTPHONE SCREEN & SIMULATOR */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-bold uppercase tracking-wider text-txt-muted flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Live WhatsApp Smartphone Screen</span>
+                  </span>
+                  <span className="text-emerald-700 font-mono font-bold">Previewing as Customer</span>
                 </div>
 
-                {/* Right Column: Smartphone Simulator (5 cols) */}
-                <div className="lg:col-span-5 bg-gradient-to-b from-slate-900 to-slate-950 p-3 sm:p-4 rounded-2xl border border-slate-800 shadow-md">
-                  <div className="flex items-center justify-between text-white/70 text-[10px] pb-2 border-b border-white/10 mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                      <span className="font-bold uppercase tracking-wider text-white">Live Phone Simulator</span>
-                    </div>
-                    <span className="font-mono text-emerald-400">Meta v21.0</span>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden border border-slate-700/60 bg-[#efeae2] shadow-inner flex flex-col min-h-[300px]">
-                    <div className="bg-[#008069] text-white px-3 py-2 flex items-center justify-between shadow-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-emerald-700 border border-white/30 flex items-center justify-center text-xs font-bold text-white shrink-0">
-                          {waDirectName ? waDirectName.charAt(0).toUpperCase() : 'G'}
+                {/* Smartphone Device Frame */}
+                <div className="mx-auto max-w-[360px] bg-slate-900 rounded-[38px] p-2.5 shadow-2xl border-4 border-slate-800 ring-1 ring-black/40">
+                  <div className="relative bg-[#0b141a] rounded-[30px] overflow-hidden border border-slate-800">
+                    {/* Mobile Top Status Bar */}
+                    <div className="flex items-center justify-between px-5 pt-2 pb-1 text-[11px] text-white font-semibold">
+                      <span>9:41</span>
+                      <div className="w-16 h-3.5 bg-black rounded-full mx-auto"></div>
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <Wifi className="w-3 h-3 text-white" />
+                        <span className="font-bold">5G</span>
+                        <div className="w-4 h-2 border border-white rounded-xs p-0.5 flex items-center">
+                          <div className="w-full h-full bg-white rounded-2xs"></div>
                         </div>
-                        <div className="min-w-0">
+                      </div>
+                    </div>
+
+                    {/* WhatsApp Business Header */}
+                    <div className="bg-[#008069] text-white px-3 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ArrowLeft className="w-4 h-4 text-white opacity-80 cursor-pointer" />
+                        <div className="w-7 h-7 rounded-full bg-emerald-800 text-white font-bold text-xs flex items-center justify-center border border-white/20 shrink-0">
+                          {waDirectName ? waDirectName.charAt(0).toUpperCase() : 'A'}
+                        </div>
+                        <div className="leading-tight min-w-0">
                           <div className="flex items-center gap-1">
-                            <span className="text-xs font-bold text-white truncate max-w-[140px]">
-                              {waDirectName || 'Guest Contact'}
+                            <span className="font-bold text-xs truncate max-w-[120px] text-white">
+                              {waDirectName || 'Arjun Mehta'}
                             </span>
-                            <CheckCircle2 className="w-3 h-3 text-emerald-200 shrink-0" />
+                            <CheckCircle2 className="w-3 h-3 text-white fill-emerald-300 shrink-0" />
                           </div>
-                          <span className="text-[9px] text-emerald-100 block font-mono truncate">
+                          <span className="text-[9px] text-emerald-100 block font-mono">
                             {waDirectTo || '+91 98765 43210'}
                           </span>
                         </div>
                       </div>
-                      <span className="text-[9px] font-semibold bg-white/20 px-1.5 py-0.5 rounded text-white">
-                        Verified
-                      </span>
+                      <div className="flex items-center gap-2.5 text-white/90">
+                        <Video className="w-4 h-4 cursor-pointer" />
+                        <Phone className="w-3.5 h-3.5 cursor-pointer" />
+                        <MoreVertical className="w-3.5 h-3.5 cursor-pointer" />
+                      </div>
                     </div>
 
-                    <div className="p-3 flex-1 flex flex-col justify-between space-y-3 bg-[radial-gradient(#d1d7db_1px,transparent_1px)] [background-size:16px_16px]">
-                      <div className="text-center">
-                        <span className="text-[9px] bg-white/90 text-slate-600 px-2.5 py-0.5 rounded-full shadow-2xs font-bold">
+                    {/* Chat Canvas with Wallpaper & Message Bubbles */}
+                    <div className="p-3 min-h-[200px] max-h-[240px] overflow-y-auto bg-[#efeae2] bg-[radial-gradient(#d1d7db_1px,transparent_1px)] [background-size:16px_16px] flex flex-col justify-between space-y-2">
+                      <div className="bg-[#ffeecd] border border-[#f0dfbc] rounded-lg p-1.5 text-center text-[9px] text-[#54656f] leading-snug shadow-2xs">
+                        🔒 Messages to this chat are end-to-end encrypted.
+                      </div>
+
+                      <div className="text-center my-1">
+                        <span className="bg-white/90 text-[#54656f] text-[9px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs border border-slate-200">
                           TODAY
                         </span>
                       </div>
 
-                      <div className="max-w-[90%] ml-auto bg-[#d9fdd3] text-[#111b21] p-3 rounded-2xl rounded-tr-none shadow-xs text-xs space-y-1.5 border border-emerald-300/40">
-                        <p className="leading-relaxed whitespace-pre-wrap break-words">
-                          {waDirectText
-                            .replace(/\{\{name\}\}/gi, waDirectName || 'Valued Guest')
-                            .replace(/\{\{first_name\}\}/gi, (waDirectName || 'Guest').split(' ')[0])
-                            .replace(/\{\{phone\}\}/gi, waDirectTo)
-                            .replace(/\{\{tier\}\}/gi, 'VIP')
-                            .replace(/\{\{link\}\}/gi, 'https://campaignhub.in')}
-                        </p>
-                        <div className="flex items-center justify-end gap-1 text-[9px] text-[#667781] pt-0.5">
-                          <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                      <div className="flex justify-end my-1">
+                        <div className="max-w-[88%] bg-[#d9fdd3] text-[#111b21] p-2.5 rounded-2xl rounded-tr-none shadow-xs text-xs border border-emerald-300/40 space-y-1">
+                          <p className="whitespace-pre-wrap leading-relaxed text-[11px]">
+                            {getInterpolatedPreview(waDirectText, waDirectName, waDirectTo)}
+                          </p>
+                          <div className="flex items-center justify-end gap-1 text-[9px] text-[#667781] pt-0.5">
+                            <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="bg-[#f0f2f5] px-3 py-2 flex items-center gap-2 border-t border-slate-200">
-                      <div className="flex-1 bg-white px-3 py-1.5 rounded-full text-[11px] text-slate-400 border border-slate-200">
-                        Message...
-                      </div>
-                      <div className="w-7 h-7 rounded-full bg-[#008069] flex items-center justify-center text-white shrink-0">
-                        <Send className="w-3 h-3" />
+                      {/* Phone Bottom Input Dock */}
+                      <div className="mt-2 flex items-center gap-1.5 pt-1">
+                        <div className="flex-1 bg-white rounded-full px-3 py-1 flex items-center justify-between text-slate-400 text-[10px] shadow-2xs border border-slate-200">
+                          <div className="flex items-center gap-1.5">
+                            <Smile className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="text-slate-400">Message</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                            <Camera className="w-3.5 h-3.5 text-slate-400" />
+                          </div>
+                        </div>
+                        <div className="w-6 h-6 rounded-full bg-[#008069] flex items-center justify-center text-white shadow-2xs shrink-0">
+                          <Send className="w-2.5 h-2.5 text-white" />
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* ===================================================================== */}
-          {/* WORKSPACE VIEW 3: APPROVED META CLOUD TEMPLATES                       */}
-          {/* ===================================================================== */}
-          {workspaceView === 'templates' && (
-            <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-                <div>
-                  <h3 className="text-sm font-bold text-txt-primary">Approved WhatsApp Cloud Templates (Meta Business Manager)</h3>
-                  <p className="text-xs text-txt-muted">
-                    Pre-approved templates with dynamic merge tags, category authorization, and language mappings.
-                  </p>
-                </div>
-                <Button
-                  onClick={() => setIsWaTemplateModalOpen(true)}
-                  className="gap-1.5 text-xs py-1.5 px-3 min-h-0 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+              {/* Execution Feedback Notification */}
+              {waDirectFeedback && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-semibold flex items-center justify-between border ${
+                    waDirectFeedback.startsWith('✓')
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-red-50 text-red-800 border-red-300'
+                  }`}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Meta Template</span>
-                </Button>
+                  <span>{waDirectFeedback}</span>
+                  {waDirectFeedback.startsWith('✓') && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                </div>
+              )}
+
+              {/* Primary Execution Button */}
+              <Button
+                type="button"
+                onClick={handleExecuteWaDirect}
+                disabled={isSendingWaDirect || !waDirectText.trim() || !waDirectTo.trim()}
+                className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white min-h-[42px] text-xs font-bold rounded-xl shadow-xs cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>
+                  {isSendingWaDirect
+                    ? 'Executing Meta Cloud API Dispatch...'
+                    : '⚡ Execute & Send WhatsApp Direct'}
+                </span>
+              </Button>
+            </div>
+
+            {/* ================================================================= */}
+            {/* RIGHT COLUMN: 2-WAY LIVE CUSTOMER INQUIRIES & INSTANT REPLIES     */}
+            {/* ================================================================= */}
+            <div className="lg:col-span-6 bg-white rounded-2xl border border-border/80 p-5 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-border/70">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
+                    <MessageSquare className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-txt-primary text-sm">Inbound Customer Replies &amp; 2-Way Live Stream</h3>
+                    <p className="text-[11px] text-txt-muted">Two-way customer messages received via Meta Cloud Webhooks.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Live Stream
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {waTemplates.length === 0 ? (
-                  <div className="col-span-full p-8 text-center bg-bg-app rounded-xl text-xs text-txt-muted border border-border/60">
-                    Default templates synced from Meta Cloud API.
-                  </div>
-                ) : (
-                  waTemplates.map((tpl) => (
-                    <div key={tpl.id} className="p-3.5 bg-bg-app rounded-xl border border-border/70 space-y-2 flex flex-col justify-between">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-txt-primary font-mono">{tpl.name}</span>
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            {tpl.status || 'APPROVED'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] text-txt-muted">
-                          <span>Category: <strong>{tpl.category}</strong></span>
-                          <span>&bull;</span>
-                          <span>Lang: <strong>{tpl.language || 'en_US'}</strong></span>
-                        </div>
-                        <p className="text-xs text-txt-muted bg-white p-2.5 rounded-lg border border-border/50 line-clamp-3">
-                          {tpl.body}
-                        </p>
-                      </div>
+              {/* Filters & Search Bar */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(['all', 'unread', 'vip'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setChatFilter(filter)}
+                      className={`text-[10px] px-2.5 py-1 rounded-md font-bold uppercase transition-colors cursor-pointer ${
+                        chatFilter === filter
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-bg-app text-txt-muted hover:text-txt-primary hover:bg-border/60'
+                      }`}
+                    >
+                      {filter === 'all'
+                        ? `All Inquiries (${conversations.length})`
+                        : filter === 'unread'
+                        ? 'Unread (1)'
+                        : 'VIP Patrons (3)'}
+                    </button>
+                  ))}
+                </div>
 
-                      <div className="pt-2 border-t border-border/50 flex items-center justify-between">
-                        <span className="text-[10px] text-txt-muted italic">Reply STOP to opt out</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedTemplateForDirect(tpl.name);
-                            setWaDirectText(tpl.body.replace('{{1}}', waDirectName || 'Guest'));
-                            setWorkspaceView('broadcast');
-                          }}
-                          className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
-                        >
-                          Load into Studio &rarr;
-                        </button>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
+                  <input
+                    type="text"
+                    value={chatSearchTerm}
+                    onChange={(e) => setChatSearchTerm(e.target.value)}
+                    placeholder="Search customer name, phone, or message text..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary focus:border-brand"
+                  />
+                </div>
+              </div>
+
+              {/* Customer Conversation Feed */}
+              <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
+                {conversations
+                  .filter((conv) => {
+                    if (chatFilter === 'unread' && conv.unreadCount === 0) return false;
+                    if (chatFilter === 'vip' && !conv.tags.some((t) => t.toLowerCase().includes('vip'))) return false;
+                    if (!chatSearchTerm) return true;
+                    const term = chatSearchTerm.toLowerCase();
+                    return (
+                      conv.contactName.toLowerCase().includes(term) ||
+                      conv.phone.toLowerCase().includes(term) ||
+                      conv.messages.some((m) => m.text.toLowerCase().includes(term))
+                    );
+                  })
+                  .map((conv) => {
+                    const lastCustomerMsg = [...conv.messages].reverse().find((m) => m.sender === 'customer');
+                    const lastAgentMsg = [...conv.messages].reverse().find((m) => m.sender === 'agent');
+
+                    return (
+                      <div
+                        key={conv.id}
+                        className="p-3.5 rounded-xl border border-border/80 bg-white shadow-2xs hover:border-emerald-300 transition-all space-y-2.5"
+                      >
+                        {/* Customer Header */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                              {conv.contactName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <strong className="text-xs font-bold text-txt-primary">
+                                  {conv.contactName}
+                                </strong>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              </div>
+                              <span className="text-[10px] text-txt-muted font-mono">{conv.phone}</span>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="text-[10px] text-txt-muted block font-medium">
+                              {conv.lastActive}
+                            </span>
+                            <div className="flex items-center gap-1 mt-0.5 justify-end">
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                                {conv.tier}
+                              </span>
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-700 font-medium">
+                                Spend: {conv.spendInr}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Inbound Customer Message Bubble */}
+                        {lastCustomerMsg && (
+                          <div className="bg-[#f0f2f5] p-2.5 rounded-xl rounded-tl-none text-xs text-[#111b21] border border-slate-200">
+                            <div className="flex items-center justify-between text-[9px] text-[#667781] pb-1">
+                              <span className="font-bold text-[#008069]">Inbound WhatsApp</span>
+                              <span>{lastCustomerMsg.timestamp}</span>
+                            </div>
+                            <p className="leading-relaxed">{lastCustomerMsg.text}</p>
+                          </div>
+                        )}
+
+                        {/* Recent Outbound Agent Reply (if exists) */}
+                        {lastAgentMsg && (
+                          <div className="bg-[#d9fdd3] p-2.5 rounded-xl rounded-tr-none text-xs text-[#111b21] border border-emerald-300/40 ml-4">
+                            <div className="flex items-center justify-between text-[9px] text-[#667781] pb-1">
+                              <span className="font-bold text-emerald-800">CampaignHub Response</span>
+                              <div className="flex items-center gap-1">
+                                <span>{lastAgentMsg.timestamp}</span>
+                                <CheckCheck className="w-3 h-3 text-[#53bdeb]" />
+                              </div>
+                            </div>
+                            <p className="leading-relaxed">{lastAgentMsg.text}</p>
+                          </div>
+                        )}
+
+                        {/* Quick Reply Pills */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[9px] font-bold text-txt-muted uppercase">Quick Fill:</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReplyDrafts((prev) => ({
+                                ...prev,
+                                [conv.id]: `Hi ${conv.contactName.split(' ')[0]}, your VIP Access Pass for the Diwali Festive Gala is confirmed! Show this message at the concierge desk.`,
+                              }))
+                            }
+                            className="text-[9px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
+                          >
+                            Confirm Pass
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReplyDrafts((prev) => ({
+                                ...prev,
+                                [conv.id]: `Hello ${conv.contactName.split(' ')[0]}, our team has noted your question and is preparing the reservation details for you now.`,
+                              }))
+                            }
+                            className="text-[9px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
+                          >
+                            Team On It
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReplyDrafts((prev) => ({
+                                ...prev,
+                                [conv.id]: `Here is the exclusive reservation portal and gala schedule: https://campaignhub.in/rsvp`,
+                              }))
+                            }
+                            className="text-[9px] px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-300 transition-colors cursor-pointer"
+                          >
+                            Gala Link
+                          </button>
+                        </div>
+
+                        {/* Inline Reply Composer */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <Input
+                            value={replyDrafts[conv.id] || ''}
+                            onChange={(e) =>
+                              setReplyDrafts((prev) => ({ ...prev, [conv.id]: e.target.value }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendConversationReply(conv.id);
+                              }
+                            }}
+                            placeholder={`Reply to ${conv.contactName}... (Press Enter)`}
+                            className="text-xs bg-bg-app rounded-xl flex-1 border-border/80"
+                          />
+                          <Button
+                            type="button"
+                            onClick={() => handleSendConversationReply(conv.id)}
+                            disabled={!replyDrafts[conv.id]?.trim() || replyingConvId === conv.id}
+                            className="gap-1 bg-[#008069] hover:bg-emerald-700 text-white min-h-[36px] px-3.5 rounded-xl text-xs font-bold shrink-0 cursor-pointer"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>{replyingConvId === conv.id ? 'Sending...' : 'Reply'}</span>
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))
-                )}
+                    );
+                  })}
               </div>
             </div>
-          )}
+          </div>
 
           {/* ===================================================================== */}
-          {/* WORKSPACE VIEW 4: DELIVERY LEDGER & TELEMETRY                         */}
+          {/* 2. BELOW THAT: ITEMIZED WHATSAPP MESSAGE DELIVERY LEDGER & TELEMETRY   */}
           {/* ===================================================================== */}
-          {workspaceView === 'ledger' && (
-            <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-                <div>
-                  <h3 className="text-sm font-bold text-txt-primary">Itemized WhatsApp Message Delivery Ledger</h3>
-                  <p className="text-xs text-txt-muted">
-                    Real-time transmission logs with confirmed delivery receipts, latency, and Meta API billing.
-                  </p>
-                </div>
-
-                {/* Filters */}
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
-                    <input
-                      type="text"
-                      value={waSearchTerm}
-                      onChange={(e) => setWaSearchTerm(e.target.value)}
-                      placeholder="Search name or phone..."
-                      className="pl-8 pr-3 py-1.5 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary w-48 focus:border-brand"
-                    />
-                  </div>
-                  <select
-                    value={waStatusFilter}
-                    onChange={(e) => setWaStatusFilter(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs bg-bg-app rounded-lg border border-border/80 text-txt-primary font-medium"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="read">Read</option>
-                    <option value="queued">Queued / Sent</option>
-                    <option value="failed">Failed</option>
-                  </select>
-                </div>
+          <div className="bg-white rounded-2xl border border-border/80 p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-txt-primary text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-600" />
+                  <span>Itemized WhatsApp Message Delivery Ledger</span>
+                </h3>
+                <p className="text-[11px] text-txt-muted">
+                  Real-time transmission logs with confirmed delivery receipts, latency, and Meta API billing.
+                </p>
               </div>
 
-              <div className="overflow-x-auto rounded-xl border border-border/60">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-bg-app text-txt-muted uppercase text-[10px] font-bold border-b border-border/60">
-                    <tr>
-                      <th className="py-2.5 px-3">Recipient &amp; Phone</th>
-                      <th className="py-2.5 px-3">Message Type / Template</th>
-                      <th className="py-2.5 px-3">Sent Time</th>
-                      <th className="py-2.5 px-3">Delivered Latency</th>
-                      <th className="py-2.5 px-3">Delivery Status</th>
-                      <th className="py-2.5 px-3">Meta Charge</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {filteredWaLogs.slice(0, 10).map((log) => (
-                      <tr key={log.id} className="hover:bg-bg-app/50 transition-colors">
-                        <td className="py-2.5 px-3">
-                          <strong className="text-txt-primary block">{log.contacts?.name || 'Contact'}</strong>
-                          <span className="text-[10px] text-txt-muted font-mono">{log.contacts?.phone || '+91 98765 43210'}</span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="font-mono text-[11px] text-txt-primary">
-                            {log.campaigns?.whatsapp_template_id || 'vip_gala_pass_2026'}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-txt-muted" />
+                  <input
+                    type="text"
+                    value={waSearchTerm}
+                    onChange={(e) => setWaSearchTerm(e.target.value)}
+                    placeholder="Search name or phone..."
+                    className="pl-8 pr-3 py-1.5 text-xs bg-bg-app rounded-lg border border-border text-txt-primary w-48 focus:border-brand"
+                  />
+                </div>
+
+                <select
+                  value={waStatusFilter}
+                  onChange={(e) => setWaStatusFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs bg-bg-app rounded-lg border border-border text-txt-primary font-medium"
+                >
+                  <option value="all">All Status</option>
+                  <option value="delivered">Delivered</option>
+                  <option value="sent">Sent</option>
+                  <option value="read">Read</option>
+                  <option value="queued">Queued</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto border border-border/80 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-bg-app/70 text-txt-muted uppercase font-bold text-[10px] tracking-wider border-b border-border/80">
+                  <tr>
+                    <th className="py-2.5 px-4">Recipient &amp; Phone</th>
+                    <th className="py-2.5 px-4">Message Type / Template</th>
+                    <th className="py-2.5 px-4">Sent Time</th>
+                    <th className="py-2.5 px-4">Delivered Latency</th>
+                    <th className="py-2.5 px-4">Delivery Status</th>
+                    <th className="py-2.5 px-4">Meta Charge</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {filteredWaLogs.slice(0, 10).map((log) => {
+                    const contact = log.contacts || {};
+                    return (
+                      <tr key={log.id} className="hover:bg-bg-app/40 transition-colors">
+                        <td className="py-2.5 px-4">
+                          <strong className="text-txt-primary block font-medium">
+                            {contact.name || 'Contact'}
+                          </strong>
+                          <span className="text-txt-muted text-[11px] font-mono">
+                            {contact.phone || '+91 98765 43210'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-txt-muted text-[11px]">
-                          {log.sent_at ? new Date(log.sent_at).toLocaleTimeString() : 'Just now'}
+                        <td className="py-2.5 px-4 font-mono text-[11px] text-txt-muted">
+                          {log.campaign_id || 'vip_gala_pass_2026'}
                         </td>
-                        <td className="py-2.5 px-3 text-txt-muted text-[11px]">
-                          {log.delivered_at ? new Date(log.delivered_at).toLocaleTimeString() : '1.1s latency'}
+                        <td className="py-2.5 px-4 text-txt-muted text-[11px]">
+                          {formatDateTime(log.created_at)}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            <CheckCheck className="w-3 h-3 text-emerald-600" />
-                            <span>{log.status || 'delivered'}</span>
+                        <td className="py-2.5 px-4 text-txt-muted text-[11px]">
+                          {log.delivered_at ? formatDateTime(log.delivered_at) : '1.1s latency'}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              log.status === 'delivered'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                : log.status === 'read'
+                                ? 'bg-blue-50 text-blue-800 border-blue-300'
+                                : log.status === 'sent'
+                                ? 'bg-teal-50 text-teal-800 border-teal-300'
+                                : 'bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>{log.status}</span>
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-txt-primary">
-                          ₹0.82
+                        <td className="py-2.5 px-4 font-bold text-txt-primary">
+                          ₹{(log.cost_inr || 0.82).toFixed(2)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          )}
+          </div>
 
           {/* ===================================================================== */}
-          {/* WORKSPACE VIEW 5: CREATIVE MEDIA ASSETS VAULT                         */}
+          {/* 3. BELOW THAT: META APPROVED MESSAGE TEMPLATES CATALOG                 */}
           {/* ===================================================================== */}
-          {workspaceView === 'media' && (
-            <div className="p-5 sm:p-6 bg-white rounded-2xl border border-border/80 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-                <div>
-                  <h3 className="text-sm font-bold text-txt-primary">WhatsApp Media Assets &amp; Event Passes</h3>
-                  <p className="text-xs text-txt-muted">
-                    Flyers, VIP badges, and image invitations optimized for WhatsApp direct messages.
-                  </p>
-                </div>
+          <div className="bg-white rounded-2xl border border-border/80 p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-txt-primary text-sm flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-emerald-600" />
+                  <span>Meta Approved Message Templates</span>
+                </h3>
+                <p className="text-[11px] text-txt-muted">
+                  Pre-approved templates on Meta WhatsApp Business Manager. Click &apos;Load into Broadcaster&apos; to populate the form and phone preview above.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <Button
-                  onClick={() => {
-                    setNewMediaChannel('WhatsApp');
-                    setIsAddMediaModalOpen(true);
+                  type="button"
+                  onClick={async () => {
+                    setIsSyncingTemplates(true);
+                    try {
+                      const res = await fetch('/api/whatsapp/templates/sync', { method: 'POST' });
+                      const d = await res.json();
+                      if (d.success) setWaTemplates(d.data || []);
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setIsSyncingTemplates(false);
+                    }
                   }}
-                  className="gap-1.5 text-xs py-1.5 px-3 min-h-0 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                  disabled={isSyncingTemplates}
+                  className="gap-1.5 bg-bg-app hover:bg-border/60 text-txt-primary border border-border min-h-[32px] text-xs font-semibold rounded-lg cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add WhatsApp Asset</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingTemplates ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingTemplates ? 'Syncing...' : 'Sync Meta Templates'}</span>
                 </Button>
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {getChannelMedia('WhatsApp').map((asset) => (
-                  <div key={asset.id} className="p-2.5 bg-bg-app rounded-xl border border-border/70 space-y-2">
-                    <div className="w-full h-28 rounded-lg overflow-hidden bg-slate-100 relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={asset.url} alt={asset.name} className="w-full h-full object-cover" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {waTemplates.map((template) => (
+                <div
+                  key={template.id}
+                  className="p-4 rounded-xl border border-border/80 bg-white hover:border-emerald-300 transition-all flex flex-col justify-between space-y-3 shadow-2xs"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-txt-primary truncate">
+                        {template.name}
+                      </span>
+                      <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        {template.status}
+                      </span>
                     </div>
-                    <h4 className="text-xs font-bold text-txt-primary truncate">{asset.name}</h4>
-                    <div className="flex justify-between items-center text-xs pt-1 border-t border-border/50">
+
+                    <div className="flex items-center gap-2 text-[10px] text-txt-muted">
+                      <span className="px-1.5 py-0.5 rounded bg-bg-app border border-border font-medium">
+                        {template.category}
+                      </span>
+                      <span>&bull;</span>
+                      <span>Language: {template.language}</span>
+                    </div>
+
+                    <div className="bg-bg-app/60 p-2.5 rounded-lg border border-border/60 text-xs text-txt-muted whitespace-pre-wrap font-sans leading-relaxed">
+                      {template.body}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTemplateForDirect(template.name);
+                      setWaDirectText(template.body);
+                      window.scrollTo({ top: 320, behavior: 'smooth' });
+                    }}
+                    className="w-full gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 min-h-[34px] text-xs font-bold rounded-lg cursor-pointer"
+                  >
+                    <span>Load into Broadcaster</span>
+                    <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ===================================================================== */}
+          {/* 4. BELOW THAT: CREATIVE MEDIA & ASSETS VAULT                           */}
+          {/* ===================================================================== */}
+          <div className="bg-white rounded-2xl border border-border/80 p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-txt-primary text-sm flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-emerald-600" />
+                  <span>Creative Media &amp; Assets Vault</span>
+                </h3>
+                <p className="text-[11px] text-txt-muted">
+                  High-resolution campaign creative assets stored on Cloudflare R2 / Supabase CDN with instant preview.
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                onClick={() => {
+                  setNewMediaChannel('WhatsApp');
+                  setIsAddMediaModalOpen(true);
+                }}
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white min-h-[32px] text-xs font-bold rounded-lg cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Upload Media Asset</span>
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {getChannelMedia('WhatsApp').map((asset) => (
+                <div
+                  key={asset.id}
+                  className="rounded-xl border border-border/80 overflow-hidden bg-white shadow-2xs hover:shadow-xs transition-shadow flex flex-col justify-between"
+                >
+                  <div className="aspect-video bg-bg-app relative overflow-hidden group">
+                    <img
+                      src={asset.url}
+                      alt={asset.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-white text-[9px] font-mono backdrop-blur-xs">
+                      {asset.type.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    <strong className="text-xs font-semibold text-txt-primary truncate block">
+                      {asset.name}
+                    </strong>
+                    <div className="flex items-center justify-between text-[11px] text-txt-muted">
+                      <span>{asset.size}</span>
                       <button
                         type="button"
                         onClick={() => handleCopyMedia(asset.url, asset.id)}
-                        className="text-[11px] text-brand hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                        className="text-brand hover:underline font-bold flex items-center gap-1 cursor-pointer"
                       >
                         {copiedMediaId === asset.id ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedMediaId === asset.id ? 'Copied!' : 'Copy URL'}</span>
+                        <span>{copiedMediaId === asset.id ? 'Copied' : 'Copy URL'}</span>
                       </button>
-                      <a href={asset.url} target="_blank" rel="noopener noreferrer" className="text-txt-muted hover:text-txt-primary">
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
         </div>
       )}
 
